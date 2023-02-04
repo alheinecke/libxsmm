@@ -47,7 +47,7 @@ OBJECTS := $(CPPOBJS) $(CXXOBJS) $(CCXOBJS) $(COBJCTS)
 FTNSRCS := $(FXXSRCS) $(F77SRCS) $(F90SRCS)
 MODULES := $(addsuffix .mod,$(basename $(FTNSRCS)))
 FTNOBJS := $(FXXOBJS) $(F77OBJS) $(F90OBJS)
-XFILES := $(OUTDIR)/gemm_kernel $(OUTDIR)/gemm_kernel_fused $(OUTDIR)/gemm_kernel_parallel
+XFILES := $(OUTDIR)/gemm_kernel $(OUTDIR)/gemm_kernel_fused $(OUTDIR)/gemm_kernel_parallel $(OUTDIR)/gemm_kernel_vnni_flat_acc
 
 .PHONY: all
 all: $(XFILES) scripts
@@ -64,6 +64,9 @@ $(TSTDIR)/.generate_gemm_test_scripts: $(TSTDIR)/generate_gemm_test_scripts.sh M
 
 $(OUTDIR)/gemm_kernel: $(OUTDIR)/.make $(BLDDIR)/gemm_kernel-c.o $(LIBDEP)
 	$(LD) -o $@ $(BLDDIR)/gemm_kernel-c.o $(MAINLIB) $(SLDFLAGS) $(LDFLAGS) $(CLDFLAGS)
+
+$(OUTDIR)/gemm_kernel_vnni_flat_acc: $(OUTDIR)/.make $(BLDDIR)/gemm_kernel_vnni_flat_acc-c.o $(LIBDEP)
+	$(LD) -o $@ $(BLDDIR)/gemm_kernel_vnni_flat_acc-c.o $(MAINLIB) $(SLDFLAGS) $(LDFLAGS) $(CLDFLAGS)
 
 $(OUTDIR)/gemm_kernel_fused: $(OUTDIR)/.make $(BLDDIR)/gemm_kernel_fused-c.o $(LIBDEP)
 	$(LD) -o $@ $(BLDDIR)/gemm_kernel_fused-c.o $(MAINLIB) $(SLDFLAGS) $(LDFLAGS) $(CLDFLAGS)

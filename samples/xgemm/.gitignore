@@ -2,5 +2,6 @@
 gemm_kernel
 gemm_kernel_fused
 gemm_kernel_parallel
+gemm_kernel_vnni_flat_acc
 kernel_test/.generate_gemm_test_scripts
 kernel_test/*.slurm
