@@ -47,7 +47,7 @@ OBJECTS := $(CPPOBJS) $(CXXOBJS) $(CCXOBJS) $(COBJCTS)
 FTNSRCS := $(FXXSRCS) $(F77SRCS) $(F90SRCS)
 MODULES := $(addsuffix .mod,$(basename $(FTNSRCS)))
 FTNOBJS := $(FXXOBJS) $(F77OBJS) $(F90OBJS)
-XFILES := $(OUTDIR)/gemm_kernel $(OUTDIR)/gemm_kernel_fused $(OUTDIR)/gemm_kernel_parallel
+XFILES := $(OUTDIR)/gemm_kernel $(OUTDIR)/gemm_kernel_fused $(OUTDIR)/gemm_kernel_parallel $(OUTDIR)/edge_benchmark $(OUTDIR)/edge_benchmark_parallel
 
 .PHONY: all
 all: $(XFILES) scripts
@@ -70,6 +70,12 @@ $(OUTDIR)/gemm_kernel_fused: $(OUTDIR)/.make $(BLDDIR)/gemm_kernel_fused-c.o $(L
 
 $(OUTDIR)/gemm_kernel_parallel: $(OUTDIR)/.make $(BLDDIR)/gemm_kernel_parallel-c.o $(LIBDEP)
 	$(LD) -o $@ $(BLDDIR)/gemm_kernel_parallel-c.o $(MAINLIB) $(SLDFLAGS) $(LDFLAGS) $(CLDFLAGS)
+
+$(OUTDIR)/edge_benchmark: $(OUTDIR)/.make $(BLDDIR)/edge_benchmark-c.o $(LIBDEP)
+	$(LD) -o $@ $(BLDDIR)/edge_benchmark-c.o $(MAINLIB) $(SLDFLAGS) $(LDFLAGS) $(CLDFLAGS)
+
+$(OUTDIR)/edge_benchmark_parallel: $(OUTDIR)/.make $(BLDDIR)/edge_benchmark_parallel-c.o $(LIBDEP)
+	$(LD) -o $@ $(BLDDIR)/edge_benchmark_parallel-c.o $(MAINLIB) $(SLDFLAGS) $(LDFLAGS) $(CLDFLAGS)
 
 $(BLDDIR)/%-cpp.o: $(SRCDIR)/%.cpp .state $(BLDDIR)/.make $(HEADERS) Makefile $(DEPDIR)/Makefile.inc
 	$(CXX) $(DFLAGS) $(IFLAGS) $(CXXFLAGS) $(CTARGET) -c $< -o $@
