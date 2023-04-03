@@ -18,6 +18,13 @@
 #include <pthread.h>
 # endif
 
+#if 0
+#define UPFRONT_SPLIT
+#endif
+#if 0
+#define INLINE_SPLIT_BREAK_DEP
+#endif
+
 typedef struct gemm_def {
   libxsmm_datatype in_type;
   libxsmm_datatype out_type;
@@ -288,7 +295,11 @@ double jit_matmul_bf16( const gemm_def*    i_gemm_def,
   libxsmm_xmmfunction rls_tr = { NULL };
   libxsmm_timer_tickint l_start;
   libxsmm_gemm_shape l_shape;
+#if 1
   libxsmm_bitfield l_flags = LIBXSMM_GEMM_FLAGS('N', 'N');
+#else
+  libxsmm_bitfield l_flags = LIBXSMM_GEMM_FLAGS('N', 'N') | LIBXSMM_GEMM_FLAG_BETA_0;
+#endif
   libxsmm_bitfield l_prefetch_flags = LIBXSMM_GEMM_PREFETCH_NONE;
   libxsmm_gemm_param gemm_param;
 
@@ -309,7 +320,15 @@ double jit_matmul_bf16( const gemm_def*    i_gemm_def,
   int l_cfg_flags = 0;
   int l_rls_flags = 0;
   libxsmm_blasint l_lda, l_ldb, l_ldc, l_m, l_n, l_k;
-  char *l_a, *l_b, *l_c, *l_b_bf16, *l_c_bf16;
+  char *l_a, *l_b, *l_c, *l_c_bf16;
+#ifdef UPFRONT_SPLIT
+  char *l_b_bf16_elems;
+#else
+  char *l_b_bf16;
+#ifdef INLINE_SPLIT_BREAK_DEP
+  char *l_b_bf16_two;
+#endif
+#endif
   unsigned long long strides[2];
 
   if (0 == i_gemm_def) {
@@ -333,13 +352,27 @@ double jit_matmul_bf16( const gemm_def*    i_gemm_def,
   l_a = (char*)libxsmm_aligned_malloc((size_t)l_lda * (size_t)l_k * LIBXSMM_TYPESIZE(i_gemm_def->in_type), 64);
   l_b = (char*)libxsmm_aligned_malloc((size_t)i_gemm_def->ldb * (size_t)i_gemm_def->n * (size_t)i_elems * LIBXSMM_TYPESIZE(i_gemm_def->out_type), 64);
   l_c = (char*)libxsmm_aligned_malloc((size_t)i_gemm_def->ldc * (size_t)i_gemm_def->n * (size_t)i_elems * LIBXSMM_TYPESIZE(i_gemm_def->out_type), 64);
+#ifdef UPFRONT_SPLIT
+  l_b_bf16_elems = (char*)libxsmm_aligned_malloc((size_t)l_ldb * (size_t)i_gemm_def->n * (size_t)i_elems * LIBXSMM_TYPESIZE(i_gemm_def->in_type), 64);
+#else
   l_b_bf16 = (char*)libxsmm_aligned_malloc((size_t)l_ldb * (size_t)i_gemm_def->n * LIBXSMM_TYPESIZE(i_gemm_def->in_type), 64);
+#ifdef INLINE_SPLIT_BREAK_DEP
+  l_b_bf16_two = (char*)libxsmm_aligned_malloc((size_t)l_ldb * (size_t)i_gemm_def->n * LIBXSMM_TYPESIZE(i_gemm_def->in_type), 64);
+#endif
+#endif
   l_c_bf16 = (char*)libxsmm_aligned_malloc((size_t)l_ldc * (size_t)i_gemm_def->n * LIBXSMM_TYPESIZE(i_gemm_def->out_type), 64);
 
   init_random_matrix( i_gemm_def->in_type,  l_a, 1,       l_lda, l_k, 0 );
   init_random_matrix( i_gemm_def->out_type, l_b, i_elems, i_gemm_def->ldb, i_gemm_def->n, 0 );
   init_zero_matrix(   i_gemm_def->out_type, l_c, i_elems, i_gemm_def->ldc, i_gemm_def->n );
+#ifdef UPFRONT_SPLIT
+  init_zero_matrix(   i_gemm_def->in_type,  l_b_bf16_elems, i_elems, l_ldb, i_gemm_def->n );
+#else
   init_zero_matrix(   i_gemm_def->in_type,  l_b_bf16, 1, l_ldb, i_gemm_def->n );
+#ifdef INLINE_SPLIT_BREAK_DEP
+  init_zero_matrix(   i_gemm_def->in_type,  l_b_bf16_two, 1, l_ldb, i_gemm_def->n );
+#endif
+#endif
   init_zero_matrix(   i_gemm_def->in_type,  l_c_bf16, 1, l_ldc, i_gemm_def->n );
 
   /* set up the flags */
@@ -385,17 +418,41 @@ double jit_matmul_bf16( const gemm_def*    i_gemm_def,
   strides[0] = (unsigned long long)(LIBXSMM_TYPESIZE(i_gemm_def->in_type)*i_gemm_def->ldb*i_gemm_def->n);
   strides[1] = (unsigned long long)(LIBXSMM_TYPESIZE(i_gemm_def->in_type)*i_gemm_def->ldb*i_gemm_def->n*2);
 
-  /* run performance */
+#ifdef UPFRONT_SPLIT
+  for ( l_e = 0; l_e < (size_t)i_elems; l_e++) {
+    split_param.in.primary = (void*)(l_b + ((size_t)l_e * i_gemm_def->ldb * i_gemm_def->n * LIBXSMM_TYPESIZE(i_gemm_def->out_type)));
+    split_param.out.primary = (void*)(l_b_bf16_elems + ((size_t)l_e * l_ldb * i_gemm_def->n * LIBXSMM_TYPESIZE(i_gemm_def->in_type)));
+    split_param.out.secondary = (void*)(&strides[0]);
+    split_kernel( &split_param );
+  }
+#else
+#ifdef INLINE_SPLIT_BREAK_DEP
+  /* we need some resonable split (bit toggling) */
+  split_param.in.primary = (void*)l_b;
+  split_param.out.primary = (void*)l_b_bf16;
+  split_param.out.secondary = (void*)(&strides[0]);
+  split_kernel( &split_param );
+#endif
+#endif
+
+    /* run performance */
   l_start = libxsmm_timer_tick();
   for (l_r = 0; l_r < (size_t)i_reps; l_r++) {
-    for ( l_e = 0; l_e < (size_t)i_elems; l_e++) {
+   for ( l_e = 0; l_e < (size_t)i_elems; l_e++) {
+#ifdef UPFRONT_SPLIT
+      gemm_param.b.primary = (void*)(l_b_bf16_elems + ((size_t)l_e* l_ldb * i_gemm_def->n * LIBXSMM_TYPESIZE(i_gemm_def->in_type)));
+#else
       split_param.in.primary = (void*)(l_b + ((size_t)l_e * i_gemm_def->ldb * i_gemm_def->n * LIBXSMM_TYPESIZE(i_gemm_def->out_type)));
+#ifdef INLINE_SPLIT_BREAK_DEP
+      split_param.out.primary = (void*)l_b_bf16_two;
+#else
       split_param.out.primary = (void*)l_b_bf16;
+#endif
       split_param.out.secondary = (void*)(&strides[0]);
       split_kernel( &split_param );
-
-      gemm_param.a.primary = (void*)l_a;
       gemm_param.b.primary = (void*)l_b_bf16;
+#endif
+      gemm_param.a.primary = (void*)l_a;
       gemm_param.c.primary = (void*)l_c_bf16;
       l_test_jit.gemm( &gemm_param );
 
@@ -412,7 +469,14 @@ double jit_matmul_bf16( const gemm_def*    i_gemm_def,
   libxsmm_free( (void*)l_a );
   libxsmm_free( (void*)l_b );
   libxsmm_free( (void*)l_c );
+#ifdef UPFRONT_SPLIT
+  libxsmm_free( (void*)l_b_bf16_elems );
+#else
   libxsmm_free( (void*)l_b_bf16 );
+#ifdef INLINE_SPLIT_BREAK_DEP
+  libxsmm_free( (void*)l_b_bf16_two );
+#endif
+#endif
   libxsmm_free( (void*)l_c_bf16 );
 
   return l_runtime;
